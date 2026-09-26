@@ -1,5 +1,12 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { db } from '@/db'
+import {
+  categories as categoriesTable,
+  channels as channelsTable,
+  externalSettings as externalSettingsTable,
+  externalChannels as externalChannelsTable,
+} from '@/db/schema'
+import { eq, and } from 'drizzle-orm'
 
 export const revalidate = 300 // Caché (ISR) de 5 minutos
 
@@ -62,10 +69,6 @@ export async function GET(request: Request) {
     )
   }
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  const supabase = createClient(supabaseUrl, supabaseAnonKey)
-
   // Require filtering by a specific user through query params ?user_id=123
   const { searchParams } = new URL(request.url)
   const userId = searchParams.get('user_id')
@@ -74,21 +77,28 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'user_id is required' }, { status: 400, headers: corsHeaders })
   }
 
-  // Queries
-  const catQuery = supabase.from('categories').select('*').eq('user_id', userId)
-  const chanQuery = supabase.from('channels').select('*').eq('is_active', true).eq('user_id', userId)
-  const extSettingsQuery = supabase.from('external_settings').select('value').eq('user_id', userId).eq('key', 'allowed_categories').single()
-  const extChannelsQuery = supabase.from('external_channels').select('external_id').eq('user_id', userId).eq('is_active', true)
+  let categories, channels, extSettings, extChannels
+  try {
+    const [catRes, chanRes, extSettingsRes, extChannelsRes] = await Promise.all([
+      db.select().from(categoriesTable).where(eq(categoriesTable.user_id, userId)),
+      db.select().from(channelsTable).where(and(eq(channelsTable.user_id, userId), eq(channelsTable.is_active, true))),
+      db
+        .select({ value: externalSettingsTable.value })
+        .from(externalSettingsTable)
+        .where(and(eq(externalSettingsTable.user_id, userId), eq(externalSettingsTable.key, 'allowed_categories'))),
+      db
+        .select({ external_id: externalChannelsTable.external_id })
+        .from(externalChannelsTable)
+        .where(and(eq(externalChannelsTable.user_id, userId), eq(externalChannelsTable.is_active, true))),
+    ])
 
-  const [
-    { data: categories, error: catError },
-    { data: channels, error: chanError },
-    { data: extSettings },
-    { data: extChannels }
-  ] = await Promise.all([catQuery, chanQuery, extSettingsQuery, extChannelsQuery])
-
-  if (catError || chanError || !categories || !channels) {
-    return NextResponse.json({ error: 'Error fetching data from supabase' }, { status: 500, headers: corsHeaders })
+    categories = catRes
+    channels = chanRes
+    extSettings = extSettingsRes[0]
+    extChannels = extChannelsRes
+  } catch (error) {
+    console.error('Error fetching data from database:', error)
+    return NextResponse.json({ error: 'Error fetching data from database' }, { status: 500, headers: corsHeaders })
   }
 
   // Configuration from DB or defaults

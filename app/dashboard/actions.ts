@@ -1,8 +1,22 @@
 'use server'
 
-import { createClient } from '@/utils/supabase/server'
+import { db } from '@/db'
+import { categories, externalSettings, externalChannels } from '@/db/schema'
+import { auth } from '@/lib/auth'
+import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
+import { eq, and } from 'drizzle-orm'
+
+async function getAuthenticatedUser() {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  })
+  if (!session?.user) {
+    throw new Error('Not authenticated')
+  }
+  return session.user
+}
 
 const CategorySchema = z.object({
   name: z.string().min(1, 'Name is required').max(100, 'Name is too long'),
@@ -18,8 +32,6 @@ const DeleteCategorySchema = z.object({
 })
 
 export async function createCategory(formData: FormData) {
-  const supabase = await createClient()
-  
   const validatedFields = CategorySchema.safeParse({
     name: formData.get('name') || '',
     description: formData.get('description') || '',
@@ -29,25 +41,23 @@ export async function createCategory(formData: FormData) {
     return { error: validatedFields.error.issues[0].message }
   }
 
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
+  try {
+    const user = await getAuthenticatedUser()
 
-  const { error } = await supabase.from('categories').insert({
-    user_id: user.id,
-    ...validatedFields.data
-  })
+    await db.insert(categories).values({
+      user_id: user.id,
+      name: validatedFields.data.name,
+      description: validatedFields.data.description,
+    })
 
-  if (error) {
-    return { error: error.message }
+    revalidatePath('/dashboard')
+    return { success: true }
+  } catch (error: any) {
+    return { error: error.message || 'Error creating category' }
   }
-
-  revalidatePath('/dashboard')
-  return { success: true }
 }
 
 export async function updateCategory(formData: FormData) {
-  const supabase = await createClient()
-  
   const validatedFields = UpdateCategorySchema.safeParse({
     id: formData.get('id') || '',
     name: formData.get('name') || '',
@@ -60,26 +70,22 @@ export async function updateCategory(formData: FormData) {
 
   const { id, ...updateData } = validatedFields.data
 
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
+  try {
+    const user = await getAuthenticatedUser()
 
-  const { error } = await supabase
-    .from('categories')
-    .update(updateData)
-    .eq('id', id)
-    .eq('user_id', user.id)
+    await db
+      .update(categories)
+      .set(updateData)
+      .where(and(eq(categories.id, id), eq(categories.user_id, user.id)))
 
-  if (error) {
-    return { error: error.message }
+    revalidatePath('/dashboard')
+    return { success: true }
+  } catch (error: any) {
+    return { error: error.message || 'Error updating category' }
   }
-
-  revalidatePath('/dashboard')
-  return { success: true }
 }
 
 export async function deleteCategory(formData: FormData) {
-  const supabase = await createClient()
-  
   const validatedFields = DeleteCategorySchema.safeParse({
     id: formData.get('id') || '',
   })
@@ -88,87 +94,90 @@ export async function deleteCategory(formData: FormData) {
     return { error: validatedFields.error.issues[0].message }
   }
 
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
+  try {
+    const user = await getAuthenticatedUser()
 
-  const { error } = await supabase
-    .from('categories')
-    .delete()
-    .eq('id', validatedFields.data.id)
-    .eq('user_id', user.id)
+    await db
+      .delete(categories)
+      .where(and(eq(categories.id, validatedFields.data.id), eq(categories.user_id, user.id)))
 
-  if (error) {
-    return { error: error.message }
+    revalidatePath('/dashboard')
+    return { success: true }
+  } catch (error: any) {
+    return { error: error.message || 'Error deleting category' }
   }
-
-  revalidatePath('/dashboard')
-  return { success: true }
 }
 
 // --- External Sources Actions ---
 
 export async function updateExternalSettings(formData: FormData) {
-  const supabase = await createClient()
   const key = formData.get('key') as string
   const valueRaw = formData.get('value') as string
-  
-  let value
+
+  let value: unknown
   try {
     value = JSON.parse(valueRaw)
   } catch {
-    value = valueRaw.split(',').map(v => v.trim()).filter(Boolean)
+    value = valueRaw.split(',').map((v) => v.trim()).filter(Boolean)
   }
 
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
+  try {
+    const user = await getAuthenticatedUser()
 
-  const { error } = await supabase
-    .from('external_settings')
-    .upsert({
-      user_id: user.id,
-      key,
-      value
-    }, { onConflict: 'user_id,key' })
+    await db
+      .insert(externalSettings)
+      .values({
+        user_id: user.id,
+        key,
+        value,
+      })
+      .onConflictDoUpdate({
+        target: [externalSettings.user_id, externalSettings.key],
+        set: { value },
+      })
 
-  if (error) return { error: error.message }
-  
-  revalidatePath('/dashboard')
-  return { success: true }
+    revalidatePath('/dashboard')
+    return { success: true }
+  } catch (error: any) {
+    return { error: error.message || 'Error updating external settings' }
+  }
 }
 
-export async function addExternalChannel(channel: { external_id: string, name: string }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
+export async function addExternalChannel(channel: { external_id: string; name: string }) {
+  try {
+    const user = await getAuthenticatedUser()
 
-  const { error } = await supabase
-    .from('external_channels')
-    .upsert({
-      user_id: user.id,
-      external_id: channel.external_id,
-      name: channel.name,
-      is_active: true
-    }, { onConflict: 'user_id,external_id' })
+    await db
+      .insert(externalChannels)
+      .values({
+        user_id: user.id,
+        external_id: channel.external_id,
+        name: channel.name,
+        is_active: true,
+      })
+      .onConflictDoUpdate({
+        target: [externalChannels.user_id, externalChannels.external_id],
+        set: { name: channel.name, is_active: true },
+      })
 
-  if (error) return { error: error.message }
-  
-  revalidatePath('/dashboard')
-  return { success: true }
+    revalidatePath('/dashboard')
+    return { success: true }
+  } catch (error: any) {
+    return { error: error.message || 'Error adding external channel' }
+  }
 }
 
 export async function removeExternalChannel(externalId: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
+  try {
+    const user = await getAuthenticatedUser()
 
-  const { error } = await supabase
-    .from('external_channels')
-    .delete()
-    .eq('user_id', user.id)
-    .eq('external_id', externalId)
+    await db
+      .delete(externalChannels)
+      .where(and(eq(externalChannels.user_id, user.id), eq(externalChannels.external_id, externalId)))
 
-  if (error) return { error: error.message }
-  
-  revalidatePath('/dashboard')
-  return { success: true }
+    revalidatePath('/dashboard')
+    return { success: true }
+  } catch (error: any) {
+    return { error: error.message || 'Error removing external channel' }
+  }
 }

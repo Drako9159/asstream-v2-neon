@@ -3,19 +3,28 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
-import { createClient } from '@/utils/supabase/server'
+import { auth } from '@/lib/auth'
 
 export async function login(formData: FormData) {
-  const supabase = await createClient()
-  const data = {
-    email: formData.get('email') as string,
-    password: formData.get('password') as string,
+  const email = formData.get('email') as string
+  const password = formData.get('password') as string
+
+  let redirectUrl: string | null = null
+
+  try {
+    await auth.api.signInEmail({
+      body: {
+        email,
+        password,
+      },
+      headers: await headers(),
+    })
+  } catch (error: any) {
+    redirectUrl = '/login?error=' + encodeURIComponent(error?.message || 'Invalid credentials')
   }
 
-  const { error } = await supabase.auth.signInWithPassword(data)
-
-  if (error) {
-    redirect('/login?error=' + encodeURIComponent(error.message))
+  if (redirectUrl) {
+    redirect(redirectUrl)
   }
 
   revalidatePath('/', 'layout')
@@ -23,7 +32,6 @@ export async function login(formData: FormData) {
 }
 
 export async function signup(formData: FormData) {
-  const supabase = await createClient()
   const email = formData.get('email') as string
   const password = formData.get('password') as string
   const confirmPassword = formData.get('confirm_password') as string
@@ -32,26 +40,24 @@ export async function signup(formData: FormData) {
     redirect('/register?error=' + encodeURIComponent('The passwords do not match'))
   }
 
-  const headersList = await headers()
-  const host = headersList.get('x-forwarded-host') ?? headersList.get('host')
-  const protocol = headersList.get('x-forwarded-proto') ?? 'http'
-  let origin = process.env.NEXT_PUBLIC_SITE_URL ?? `${protocol}://${host}`
-  origin = origin.endsWith('/') ? origin.slice(0, -1) : origin
+  let redirectUrl: string | null = null
 
-  const { data: authData, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      emailRedirectTo: `${origin}/auth/callback`,
-    },
-  })
-
-  if (error) {
-    redirect('/register?error=' + encodeURIComponent(error.message))
+  try {
+    const name = email.split('@')[0]
+    await auth.api.signUpEmail({
+      body: {
+        email,
+        password,
+        name,
+      },
+      headers: await headers(),
+    })
+  } catch (error: any) {
+    redirectUrl = '/register?error=' + encodeURIComponent(error?.message || 'Registration failed')
   }
 
-  if (authData.user && authData.session === null) {
-    redirect('/register?message=' + encodeURIComponent('Please check your email to verify your account.'))
+  if (redirectUrl) {
+    redirect(redirectUrl)
   }
 
   revalidatePath('/', 'layout')
@@ -59,50 +65,60 @@ export async function signup(formData: FormData) {
 }
 
 export async function signout() {
-  const supabase = await createClient()
-  await supabase.auth.signOut()
+  try {
+    await auth.api.signOut({
+      headers: await headers(),
+    })
+  } catch (error) {
+    console.error('Sign out error:', error)
+  }
+
   revalidatePath('/', 'layout')
   redirect('/login')
 }
 
 export async function resetPasswordEmail(formData: FormData) {
-  const supabase = await createClient()
   const email = formData.get('email') as string
 
-  const headersList = await headers()
-  const host = headersList.get('x-forwarded-host') ?? headersList.get('host')
-  const protocol = headersList.get('x-forwarded-proto') ?? 'http'
-  let origin = process.env.NEXT_PUBLIC_SITE_URL ?? `${protocol}://${host}`
-  // remove trailing slash if present
-  origin = origin.endsWith('/') ? origin.slice(0, -1) : origin
-
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${origin}/auth/callback?next=/update-password`,
-  })
-
-  if (error) {
-    redirect('/forgot-password?error=' + encodeURIComponent(error.message))
+  let redirectUrl: string | null = null
+  try {
+    await auth.api.requestPasswordReset({
+      body: {
+        email,
+        redirectTo: '/update-password',
+      },
+      headers: await headers(),
+    })
+    redirectUrl = '/forgot-password?message=' + encodeURIComponent('If the email exists, instructions have been sent.')
+  } catch (error: any) {
+    redirectUrl = '/forgot-password?error=' + encodeURIComponent(error?.message || 'Error requesting password reset')
   }
 
-  redirect('/forgot-password?message=' + encodeURIComponent('We have sent you an email with instructions.'))
+  redirect(redirectUrl)
 }
 
 export async function updatePasswordAction(formData: FormData) {
-  const supabase = await createClient()
   const password = formData.get('password') as string
   const confirmPassword = formData.get('confirm_password') as string
+  const token = (formData.get('token') as string) || undefined
 
   if (password !== confirmPassword) {
-    redirect('/update-password?error=' + encodeURIComponent('The passwords do not match'))
+    redirect('/update-password?error=' + encodeURIComponent('The passwords do not match') + (token ? `&token=${token}` : ''))
   }
 
-  const { error } = await supabase.auth.updateUser({
-    password: password
-  })
-
-  if (error) {
-    redirect('/update-password?error=' + encodeURIComponent(error.message))
+  let redirectUrl: string | null = null
+  try {
+    await auth.api.resetPassword({
+      body: {
+        newPassword: password,
+        token,
+      },
+      headers: await headers(),
+    })
+    redirectUrl = '/login?message=' + encodeURIComponent('Password updated successfully. Please log in.')
+  } catch (error: any) {
+    redirectUrl = '/update-password?error=' + encodeURIComponent(error?.message || 'Error updating password') + (token ? `&token=${token}` : '')
   }
 
-  redirect('/dashboard?message=' + encodeURIComponent('Password updated successfully'))
+  redirect(redirectUrl)
 }

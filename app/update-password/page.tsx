@@ -7,9 +7,10 @@ import { ToastHandler } from '@/components/toast-handler'
 export default async function UpdatePasswordPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string, message?: string }>
+  searchParams: Promise<{ error?: string; message?: string; token?: string }>
 }) {
-  const { error, message } = await searchParams;
+  const { error, message, token } = await searchParams
+
   return (
     <div className="flex min-h-screen w-full items-center justify-center px-4 bg-neutral-100 dark:bg-neutral-900">
       <ToastHandler error={error} message={message} />
@@ -19,16 +20,21 @@ export default async function UpdatePasswordPage({
           <p className="text-sm text-neutral-500 dark:text-neutral-400">Enter your new password</p>
         </div>
         <form className="space-y-4">
+          <input type="hidden" name="token" value={token || ''} />
           <div className="space-y-2">
-            <Label htmlFor="password" className="dark:text-neutral-200">New password</Label>
+            <Label htmlFor="password" className="dark:text-neutral-200">
+              New password
+            </Label>
             <Input id="password" name="password" type="password" required className="dark:text-neutral-50" />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="confirm_password" className="dark:text-neutral-200">Confirm password</Label>
+            <Label htmlFor="confirm_password" className="dark:text-neutral-200">
+              Confirm password
+            </Label>
             <Input id="confirm_password" name="confirm_password" type="password" required className="dark:text-neutral-50" />
           </div>
 
-          <Button formAction={updatePasswordAction} className="w-full dark:bg-neutral-50 dark:text-neutral-900 dark:hover:bg-neutral-200">
+          <Button formAction={updatePasswordAction} className="w-full dark:bg-neutral-50 dark:text-neutral-900 dark:hover:bg-neutral-200 hover:cursor-pointer">
             Reset password
           </Button>
         </form>

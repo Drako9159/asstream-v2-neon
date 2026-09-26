@@ -1,55 +1,80 @@
 # Asstream V2 🚀
 
-Welcome to **Asstream V2**, the new and redesigned version of the content management and streaming system. The newly redesigned version of the content management and streaming system. This project involves a CMS (content management system) architecture that automatically generates JSON feeds compatible with Roku Direct Publisher, simplifying the management of live channels and video-on-demand (VOD) content.
+Welcome to **Asstream V2**, a modern content management system (CMS) and specialized backend that generates customized JSON feeds compatible with Roku Direct Publisher, simplifying the administration of live channels, external IPTV sources, and video-on-demand (VOD) content for Roku TV.
 
-## 🌟 What's New in V2
+## 🌟 Architecture & Stack
 
-This version has been built from scratch to bring substantial improvements in performance, security, and user experience:
-
-- **Migration to Next.js App Router**: Transition to server components (`RSC`) and `Server Actions` to eliminate dependency on a heavy REST framework and improve UI load times.
-- **Supabase SSR Authentication**: Amazingly secure authentication with the new Supabase standard, including password recovery flow and database profiles protected with **Row Level Security (RLS)**.
-- **Revamped Dashboard Design**: A premium interface featuring a unified sidebar, native TailwindCSS, Shadcn UI, tabbed navigation, and toast notifications with Sonner.
-- **Native API and CDN Caching (ISR)**: Routes generated and injected using Next.js CDN memory (Stale-While-Revalidate) facing the client (Roku), protecting the database from massive request bottlenecks.
+- **Next.js 16 (App Router)**: Server Components (`RSC`) and Server Actions for high performance and minimal client overhead.
+- **Neon (Serverless PostgreSQL)**: Scalable cloud Postgres database.
+- **Drizzle ORM**: Type-safe relational data modeling and migrations (`drizzle-kit`).
+- **Better Auth**: Self-hosted, sovereign authentication and session management directly stored in PostgreSQL.
+- **Resend**: Transactional email delivery for password reset flows with local developer fallback.
+- **Tailwind CSS & Shadcn UI**: Modern, accessible dashboard interface with dark mode and toast feedback via Sonner.
+- **Roku Feed Caching (ISR)**: Cached feed generation (`stale-while-revalidate`) protecting the database from high-volume player polling.
 
 ## ✨ Main Features
 
-1. **Category and Channel Manager**: Full CRUD-style control. Comprehensive support for categorizing content based on the Roku format (`movies`, `liveFeeds`, `tvSpecials`...).
-2. **VOD Auto-Completion with TMDB**: Forget searching for covers or descriptions for your series and movies. Type the name, and Asstream queries the TMDB API in the backend to auto-complete the entire form.
-3. **Automatic Validation of "TV Specials" (Twitch)**: Are you a streamer or do you want to add a streamer to the grid? Add them to "tvSpecials", and the engine will iterate asynchronously, extracting the pure HLS (m3u8) code using the `twitch-m3u8` library. If the streamer is not live, they **disappear from the feed** to avoid broken links.
-4. **Live Health-Checks for `liveFeeds`**: If a 24/7 transmission channel goes down, the server will perform an asynchronous ping with a *Timeout* to the HTTP protocol. If there is no connection, it will be hidden, protecting the ecosystem for your end users' TVs.
+1. **Category and Channel Manager**: Full CRUD control to manage and categorize content for Roku formats (`movies`, `liveFeeds`, `tvSpecials`, etc.).
+2. **VOD Auto-Completion with TMDB**: Search and autocomplete movie/show metadata, posters, and backdrops via The Movie Database (TMDB) API.
+3. **Automatic Validation of "TV Specials" (Twitch)**: Dynamic extraction of live HLS (`.m3u8`) streams via `twitch-m3u8`. Channels that are not live automatically hide from the feed.
+4. **Live Health-Checks for `liveFeeds`**: Automated reachability ping with timeout to ensure broken 24/7 streams are omitted from player devices.
+5. **External IPTV-ORG Integration**: Whitelist curated IPTV channels and categories from public IPTV-ORG feeds.
 
-## 🛠 Local Installation
+## 🛠 Local Setup
 
-### Requirements
-- Node.js version >= 18+
-- A configured [Supabase](https://supabase.com/) project.
-- A TheMovieDB (TMDB) API key.
+### Prerequisites
+- Node.js >= 20
+- pnpm >= 11
+- A [Neon](https://neon.tech/) PostgreSQL database
+- TMDB API Key (optional, for metadata search)
+- [Resend](https://resend.com/) API Key (optional, for email delivery)
 
-### Steps
-1. Clone the repository and install the dependencies:
+### Installation
+
+1. Clone the repository and install dependencies:
    ```bash
-   npm install
+   pnpm install
    ```
-2. Rename `.env.example` to `.env.local` (or just `.env` depending on your environment) and fill in your master variables:
+
+2. Configure environment variables in `.env.local`:
    ```env
-   NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+   # Database (Neon)
+   DATABASE_URL=postgresql://user:password@endpoint-pooler.region.neon.tech/neondb?sslmode=require
+
+   # Authentication (Better Auth)
+   BETTER_AUTH_SECRET=your_generated_random_secret
+   BETTER_AUTH_URL=http://localhost:3000
+
+   # Optional Services
    TMDB_API_KEY=your_tmdb_api_key
+   RESEND_API_KEY=re_your_resend_api_key
+   EMAIL_FROM=AsStream <onboarding@resend.dev>
+   NEXT_PUBLIC_SITE_URL=http://localhost:3000
    ```
-3. Configure the database. Go to the SQL query panel of your Supabase project and run the entire content of the `supabase/schema.sql` file. This will create the ecosystem of categories, channels, and enable privacy policies.
-4. Start development mode!
+
+3. Push the relational schema to your database:
    ```bash
-   npm run dev
+   pnpm db:push
    ```
 
-## 📡 Main Feed Endpoint
+4. Run the development server:
+   ```bash
+   pnpm dev
+   ```
 
-The generator file to be injected as a JSON Feed to Roku or players resides at:
+Open [http://localhost:3000](http://localhost:3000) to view the application.
 
-`GET /api/feed`
+## 🗄 Database Management
 
-> 💡 **Tip:** Don't worry about the user flow. The feed API has designated RLS rules to allow public reads and is shielded by a local cache scheduled in 5-minute bursts, guaranteeing resilience without extra costs to your DB.
+- **Push Schema Changes**: `pnpm db:push`
+- **Drizzle Studio (Visual Inspector)**: `pnpm db:studio`
 
----
+## 📡 Roku Feed Endpoint
 
-Developed with skill and innovation for the future of iterative content streaming.
+The feed consumed by Roku Direct Publisher is served at:
+
+```
+GET /api/feed?user_id=<USER_ID>
+```
+
+Each user has an isolated feed URL displayed in their dashboard sidebar with their unique `user_id`.

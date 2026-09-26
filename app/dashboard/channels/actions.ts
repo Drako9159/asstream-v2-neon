@@ -1,8 +1,22 @@
 'use server'
 
-import { createClient } from '@/utils/supabase/server'
+import { db } from '@/db'
+import { channels } from '@/db/schema'
+import { auth } from '@/lib/auth'
+import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
+import { eq, and } from 'drizzle-orm'
+
+async function getAuthenticatedUser() {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  })
+  if (!session?.user) {
+    throw new Error('Not authenticated')
+  }
+  return session.user
+}
 
 const ChannelSchema = z.object({
   category_id: z.string().min(1, 'Category is required'),
@@ -25,8 +39,6 @@ const DeleteChannelSchema = z.object({
 })
 
 export async function createChannel(formData: FormData) {
-  const supabase = await createClient()
-
   const validatedFields = ChannelSchema.safeParse({
     category_id: formData.get('category_id') || '',
     title: formData.get('title') || '',
@@ -43,25 +55,30 @@ export async function createChannel(formData: FormData) {
     return { error: validatedFields.error.issues[0].message }
   }
 
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
+  try {
+    const user = await getAuthenticatedUser()
 
-  const { error } = await supabase.from('channels').insert({
-    user_id: user.id,
-    ...validatedFields.data
-  })
+    await db.insert(channels).values({
+      user_id: user.id,
+      category_id: validatedFields.data.category_id,
+      title: validatedFields.data.title,
+      description: validatedFields.data.description,
+      poster_url: validatedFields.data.poster_url,
+      banner_url: validatedFields.data.banner_url,
+      source_url: validatedFields.data.source_url,
+      is_active: validatedFields.data.is_active,
+      is_streaming: validatedFields.data.is_streaming,
+      quality: validatedFields.data.quality || 'HD',
+    })
 
-  if (error) {
-    return { error: error.message }
+    revalidatePath('/dashboard')
+    return { success: true }
+  } catch (error: any) {
+    return { error: error.message || 'Error creating channel' }
   }
-
-  revalidatePath('/dashboard')
-  return { success: true }
 }
 
 export async function updateChannel(formData: FormData) {
-  const supabase = await createClient()
-  
   const validatedFields = UpdateChannelSchema.safeParse({
     id: formData.get('id') || '',
     category_id: formData.get('category_id') || '',
@@ -81,26 +98,32 @@ export async function updateChannel(formData: FormData) {
 
   const { id, ...updateData } = validatedFields.data
 
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
+  try {
+    const user = await getAuthenticatedUser()
 
-  const { error } = await supabase
-    .from('channels')
-    .update(updateData)
-    .eq('id', id)
-    .eq('user_id', user.id)
+    await db
+      .update(channels)
+      .set({
+        category_id: updateData.category_id,
+        title: updateData.title,
+        description: updateData.description,
+        poster_url: updateData.poster_url,
+        banner_url: updateData.banner_url,
+        source_url: updateData.source_url,
+        is_active: updateData.is_active,
+        is_streaming: updateData.is_streaming,
+        quality: updateData.quality || 'HD',
+      })
+      .where(and(eq(channels.id, id), eq(channels.user_id, user.id)))
 
-  if (error) {
-    return { error: error.message }
+    revalidatePath('/dashboard')
+    return { success: true }
+  } catch (error: any) {
+    return { error: error.message || 'Error updating channel' }
   }
-
-  revalidatePath('/dashboard')
-  return { success: true }
 }
 
 export async function deleteChannel(formData: FormData) {
-  const supabase = await createClient()
-  
   const validatedFields = DeleteChannelSchema.safeParse({
     id: formData.get('id') || '',
   })
@@ -109,19 +132,16 @@ export async function deleteChannel(formData: FormData) {
     return { error: validatedFields.error.issues[0].message }
   }
 
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
+  try {
+    const user = await getAuthenticatedUser()
 
-  const { error } = await supabase
-    .from('channels')
-    .delete()
-    .eq('id', validatedFields.data.id)
-    .eq('user_id', user.id)
+    await db
+      .delete(channels)
+      .where(and(eq(channels.id, validatedFields.data.id), eq(channels.user_id, user.id)))
 
-  if (error) {
-    return { error: error.message }
+    revalidatePath('/dashboard')
+    return { success: true }
+  } catch (error: any) {
+    return { error: error.message || 'Error deleting channel' }
   }
-
-  revalidatePath('/dashboard')
-  return { success: true }
 }

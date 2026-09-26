@@ -7,10 +7,9 @@ import { Label } from '@/components/ui/label'
 import { searchTMDBMedia, getTMDBDetails } from '@/app/dashboard/tmdb-actions'
 import { createChannel, updateChannel, deleteChannel } from '@/app/dashboard/channels/actions'
 import { toast } from 'sonner'
-import { Category } from './category-client'
-import { Database } from '@/types/supabase'
+import { Category, Channel } from '@/db/schema'
 
-export type Channel = Database['public']['Tables']['channels']['Row']
+export type { Channel }
 
 export interface TMDBItem {
   id: number
