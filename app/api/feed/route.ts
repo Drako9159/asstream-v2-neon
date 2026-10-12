@@ -268,7 +268,7 @@ export async function GET(request: Request) {
             audioTracks: [{ language: "es", label: "Spanish" }]
           },
           thumbnail: logo?.url || "https://via.placeholder.com/500",
-          backdrop: "https://via.placeholder.com/1600",
+          backdrop: "https://cdn.pixabay.com/photo/2022/06/30/02/00/mountains-7292778_960_720.jpg",
           shortDescription: channel.name,
           releaseDate: new Date().toISOString().split('T')[0],
           longDescription: channel.name,
